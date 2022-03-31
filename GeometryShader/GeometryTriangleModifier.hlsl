@@ -7,7 +7,7 @@ Block GeometryShader_ControlBlock_TriangleModifier
 	// global meaning it is a shared by all blocks that declare the same name
 	// partial meaning that each block only needs to declare the fields that it interacts with
 	// the actual final structure will be a superset of all block declared fields
-	// (and may also include additional fields added by linking for passthrough, when the type is used as a stream)
+	// (and may also include additional fields added by linking for passthrough, when the type is used as a stream type)
 	global partial struct GeomVert
 	{
 		// in this case the control block doesn't directly access any vertex data,
@@ -16,7 +16,16 @@ Block GeometryShader_ControlBlock_TriangleModifier
 
 	Inputs
 	{
+		// InputStream<T> is a generated type that wraps an input stream, and can read data from the stream into the specified structure
 		[Triangle] InputStream<GeomVert> inStream;
+
+		// OutputStream<T> is a generated type similar to InputStream, but can write data to the stream from the specified structure
+		// it's not clear what the best way to specify MaxVertexCount is, but this is one option
+		// THOUGHT: it is somewhat weird that outStream needs to be declared in the INPUTS, but that's how it works...
+		// the actual output occurs as a side effect of calling the Write/Emit function on this stream.
+		[MaxVertexCount(3)][Triangle] OutputStream<GeomVert> outStream;
+
+		// this example is making use of josh's proposal for invoking customization points from within blocks
 		CustomizationPoint preVertexCP(inout GeomVert v, in GeomVert orig);
 		CustomizationPoint triangleCP(inout GeomVert v[3], in GeomVert orig[3]);
 		CustomizationPoint postVertexCP(inout GeomVert v, in GeomVert orig);
@@ -25,20 +34,21 @@ Block GeometryShader_ControlBlock_TriangleModifier
 
 	Outputs
 	{
-		[MaxVertexCount(3)] [Triangle] OutputStream<GeomVert> outStream;
 	}
 
 	Outputs Apply(Inputs inputs)
 	{
+		// make use of the InputStream<> generated Read() function to read the input vertices from the input stream
 		GeomVert v[3];
 		v[0] = inputs.inStream.Read(0);
 		v[1] = inputs.inStream.Read(1);
 		v[2] = inputs.inStream.Read(2);
 
+		// make a copy of the original data, in case any customization point cares
 		GeomVert orig[3];
 		orig[0] = v[0]; orig[1] = v[1]; orig[2] = v[2];
 
-		// apply per-vertex operations (pre-triangle operations)
+		// apply per-vertex operations (before triangle operations)
 		for (int i = 0; i < 3; i++)
 		{
 			preVertexCP.Execute(v[i], orig[i]);
@@ -47,21 +57,16 @@ Block GeometryShader_ControlBlock_TriangleModifier
 		// apply triangle operations
 		triangleCP.Execute(v, orig);
 
-		// apply per-vertex operations (post-triangle operations)
+		// apply per-vertex operations (after triangle operations)
 		for (int i = 0; i < 3; i++)
 		{
 			postVertexCP.Execute(v[i], orig[i]);
 		}
 
 		// write output triangle
-		Outputs outputs;
-
-		// somewhat weird that outStream is in the output structure...
-		// when in reality, the outStream is actually an INPUT to the function,
-		// and the actual output occurs as a side effect of calling Write()
-		outputs.outStream.Write(v[0]);
-		outputs.outStream.Write(v[1]);
-		outputs.outStream.Write(v[2]);
+		inputs.outStream.Write(v[0]);
+		inputs.outStream.Write(v[1]);
+		inputs.outStream.Write(v[2]);
 
 		// we could, for example, pass the output stream to the "generateMoreTrianglesCP"
 		// to enable user code to generate additional triangles if they wanted...
@@ -69,6 +74,7 @@ Block GeometryShader_ControlBlock_TriangleModifier
 		// generateMoreTrianglesCP.Execute(v, orig, outputs.outStream);
 
 		// so this return is actually returning nothing...
+		Outputs outputs;
 		return outputs;
 	}
 }
@@ -123,10 +129,11 @@ Block UserBlock_PerTriangle_SetNormalsToFlatShaded
 
 Block UserBlock_PerTriangle_ShrinkEraseTriangle
 {
-	// shrink the rasterized area of each triangle, while keeping interior fragment results constant
+	// shrink the rasterized area of each triangle,
+	// while keeping interior fragment results constant
+
 	global partial struct GeomVert
 	{
-		inout float3 position;
 	}
 
 	Inputs
