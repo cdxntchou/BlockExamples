@@ -151,12 +151,78 @@ Block UserBlock_PerTriangle_ShrinkEraseTriangle
 	{
 		// Blend3 and Lerp need to be generated functions, even more so when used on generated types
 		// (another use case for generic support..)
-		GeomVert vCenter = Blend3<GeomVert>(v[0], 0.333f, v[1], 0.333f, v[2], 0.334f);
+		GeomVert vCenter = Blend3<GeomVert>(inputs.v[0], 0.333f, inputs.v[1], 0.333f, inputs.v[2], 0.334f);
 
 		Outputs outputs;
 		outputs.v[0] = Lerp<GeomVert>(inputs.v[0], vCenter, shrinkAmount);
 		outputs.v[1] = Lerp<GeomVert>(inputs.v[1], vCenter, shrinkAmount);
 		outputs.v[2] = Lerp<GeomVert>(inputs.v[2], vCenter, shrinkAmount);
+		return outputs;
+	}
+}
+
+
+Block UserBlock_PerTriangle_ExplodeMeshTriangles
+{
+	// explode the mesh into separate triangles, applying an initial velocity,
+	// gravity and a rotation to each triangle independently
+
+	global partial struct GeomVert
+	{
+		inout float3 position;
+		inout float3 normal;
+		inout float3 tangent;
+		inout float3 bitangent;
+	}
+
+	Inputs
+	{
+		GeomVert v[3];
+		[Property] [default(float3(0.0f,0.0f,0.0f))] float3 explosionOrigin;
+		[Property] [default(1.0f)] float initialVelocityMultiplier;
+		[Property] [default(1.0f)] float rotationSpeed;
+		[Property] [default(1.0f)] float gravityAcceleration;
+		[default(0.0f)] float time;		// time since the explosion occurred (must be hooked up)
+	}
+
+	Outputs
+	{
+		GeomVert v[3];
+	}
+
+	Outputs Apply(Inputs inputs)
+	{
+		GeomVert v0 = inputs.v[0];
+		GeomVert v1 = inputs.v[1];
+		GeomVert v2 = inputs.v[2];
+		GeomVert vCenter = Blend3<GeomVert>(v0, 0.333f, v1, 0.333f, v2, 0.334f);
+
+		float3 initialVelocity = (vCenter.position - explosionOrigin) * initialVelocityMultipler;
+		float3 rotationAxis = normalize(cross(initialVelocity, float3(0.0f, 1.0f, 0.0f)));
+
+		float3 newCenterPosition = vCenter.position + initialVelocity * time + float3(0.0f, -gravityAcceleration, 0.0f) * time * time;
+		float3x3 rotationMatrix = MatrixFromAxisAngle(rotationAxis, time * rotationSpeed);
+
+		// rotate points around vCenter by rotation matrix, then offset to new position
+		v0.position = rotationMatrix * (v0.position - vCenter.position) + newCenterPosition;
+		v0.normal = rotationMatrix * v0.normal;
+		v0.tangent = rotationMatrix * v0.tangent;
+		v0.bitangent = rotationMatrix * v0.bitangent;
+
+		v1.position = rotationMatrix * (v1.position - vCenter.position) + newCenterPosition;
+		v1.normal = rotationMatrix * v1.normal;
+		v1.tangent = rotationMatrix * v1.tangent;
+		v1.bitangent = rotationMatrix * v1.bitangent;
+
+		v2.position = rotationMatrix * (v2.position - vCenter.position) + newCenterPosition;
+		v2.normal = rotationMatrix * v2.normal;
+		v2.tangent = rotationMatrix * v2.tangent;
+		v2.bitangent = rotationMatrix * v2.bitangent;
+
+		Outputs outputs;
+		outputs.v[0] = v0;
+		outputs.v[1] = v1;
+		outputs.v[2] = v2;
 		return outputs;
 	}
 }
