@@ -25,10 +25,10 @@ Block GeometryShader_ControlBlock_TriangleModifier
 		// the actual output occurs as a side effect of calling the Write/Emit function on this stream.
 		[MaxVertexCount(3)][Triangle] OutputStream<GeomVert> outStream;
 
-		// this example is making use of josh's proposal for invoking customization points from within blocks
-		CustomizationPoint preVertexCP(inout GeomVert v, in GeomVert orig);
-		CustomizationPoint triangleCP(inout GeomVert v[3], in GeomVert orig[3]);
-		CustomizationPoint postVertexCP(inout GeomVert v, in GeomVert orig);
+		// this example is making use of Josh's proposal for invoking customization points from within blocks
+		CustomizationPoint preTriangleVertexOperations(inout GeomVert v, in GeomVert orig);
+		CustomizationPoint triangleOperations(inout GeomVert v[3], in GeomVert orig[3]);
+		CustomizationPoint postTriangleVertexOperations(inout GeomVert v, in GeomVert orig);
 		// CustomizationPoint generateMoreTrianglesCP(inout GeomVert v[3], in GeomVert orig[3], in OutputStream<GeomVert> outStream);
 	}
 
@@ -51,24 +51,24 @@ Block GeometryShader_ControlBlock_TriangleModifier
 		// apply per-vertex operations (before triangle operations)
 		for (int i = 0; i < 3; i++)
 		{
-			preVertexCP.Execute(v[i], orig[i]);
+			preTriangleVertexOperations(v[i], orig[i]);
 		}
 
 		// apply triangle operations
-		triangleCP.Execute(v, orig);
+		triangleOperations(v, orig);
 
 		// apply per-vertex operations (after triangle operations)
 		for (int i = 0; i < 3; i++)
 		{
-			postVertexCP.Execute(v[i], orig[i]);
+			postTriangleVertexOperations(v[i], orig[i]);
 		}
 
-		// write output triangle
+		// emit output triangle (via OutputStream<> generated Write() function)
 		inputs.outStream.Write(v[0]);
 		inputs.outStream.Write(v[1]);
 		inputs.outStream.Write(v[2]);
 
-		// we could, for example, pass the output stream to the "generateMoreTrianglesCP"
+		// we could, for example, pass the OutputStream to the "generateMoreTrianglesCP"
 		// to enable user code to generate additional triangles if they wanted...
 		// we would need to somehow figure out how to update the MaxVertexCount appropriately.
 		// generateMoreTrianglesCP.Execute(v, orig, outputs.outStream);
@@ -108,7 +108,7 @@ Block UserBlock_PerTriangle_SetNormalsToFlatShaded
 	{
 		float3 e0 = inputs.v[1].position - inputs.v[0].position;
 		float3 e1 = inputs.v[2].position - inputs.v[0].position;
-		float3 flatNormal = normalize(cross(e0, e1));  // might have this backwards... todo
+		float3 flatNormal = normalize(cross(e0, e1));  // might have this backwards.. depends on triangle cull winding
 
 		// annoying that we have to copy inputs to outputs manually here
 		// if we allowed combined input/output state we wouldn't have to...
@@ -149,8 +149,9 @@ Block UserBlock_PerTriangle_ShrinkEraseTriangle
 
 	Outputs Apply(Inputs inputs)
 	{
-		// Blend needs to be a generated function for deferred structs like GeomVert
-		GeomVert vCenter = Blend3<GeomVert>(v[0], 0.33f, v[1], 0.33f, v[2], 0.34f);
+		// Blend3 and Lerp need to be generated functions, even more so when used on generated types
+		// (another use case for generic support..)
+		GeomVert vCenter = Blend3<GeomVert>(v[0], 0.333f, v[1], 0.333f, v[2], 0.334f);
 
 		Outputs outputs;
 		outputs.v[0] = Lerp<GeomVert>(inputs.v[0], vCenter, shrinkAmount);
