@@ -67,6 +67,7 @@ Block GeometryShader_ControlBlock_TriangleModifier
 		inputs.outStream.Write(v[0]);
 		inputs.outStream.Write(v[1]);
 		inputs.outStream.Write(v[2]);
+		inputs.outStream.RestartStrip();
 
 		// we could, for example, pass the OutputStream to the "generateMoreTrianglesCP"
 		// to enable user code to generate additional triangles if they wanted...
