@@ -10,8 +10,8 @@ Block GeometryShader_ControlBlock_TriangleModifier
 	// (and may also include additional fields added by linking for passthrough, when the type is used as a stream type)
 	global partial struct GeomVert
 	{
-		// in this case the control block doesn't directly access any vertex data,
-		// so no need to declare any fields here
+		in float3 positionWS;
+		out float4 positionCS;
 	}
 
 	Inputs
@@ -63,6 +63,11 @@ Block GeometryShader_ControlBlock_TriangleModifier
 			postTriangleVertexOperations(v[i], orig[i]);
 		}
 
+		// ensure positionCS is transformed correctly from positionWS
+		v[0].positionCS = TransformPoint(v[0].positionWS);
+		v[1].positionCS = TransformPoint(v[1].positionWS);
+		v[2].positionCS = TransformPoint(v[2].positionWS);
+
 		// emit output triangle (via OutputStream<> generated Write() function)
 		inputs.outStream.Write(v[0]);
 		inputs.outStream.Write(v[1]);
@@ -90,7 +95,7 @@ Block UserBlock_PerTriangle_SetNormalsToFlatShaded
 
 	global partial struct GeomVert
 	{
-		in float3 position;
+		in float3 positionWS;
 		inout float3 normal;
 	}
 
@@ -107,8 +112,8 @@ Block UserBlock_PerTriangle_SetNormalsToFlatShaded
 
 	Outputs Apply(Inputs inputs)
 	{
-		float3 e0 = inputs.v[1].position - inputs.v[0].position;
-		float3 e1 = inputs.v[2].position - inputs.v[0].position;
+		float3 e0 = inputs.v[1].positionWS - inputs.v[0].positionWS;
+		float3 e1 = inputs.v[2].positionWS - inputs.v[0].positionWS;
 		float3 flatNormal = normalize(cross(e0, e1));  // might have this backwards.. depends on triangle cull winding
 
 		// annoying that we have to copy inputs to outputs manually here
@@ -165,15 +170,15 @@ Block UserBlock_PerTriangle_ShrinkEraseTriangle
 
 Block UserBlock_PerTriangle_ExplodeMeshTriangles
 {
-	// explode the mesh into separate triangles, applying an initial velocity,
-	// gravity and a rotation to each triangle independently
+	// split the mesh into separate triangles and make them fly apart like in an explosion
+	// applying an initial velocity, gravity and a rotation to each triangle independently
 
 	global partial struct GeomVert
 	{
-		inout float3 position;
-		inout float3 normal;
-		inout float3 tangent;
-		inout float3 bitangent;
+		inout float3 positionWS;
+		inout float3 normalWS;
+		inout float3 tangentWS;
+		inout float3 bitangentWS;
 	}
 
 	Inputs
@@ -198,27 +203,28 @@ Block UserBlock_PerTriangle_ExplodeMeshTriangles
 		GeomVert v2 = inputs.v[2];
 		GeomVert vCenter = Blend3<GeomVert>(v0, 0.333f, v1, 0.333f, v2, 0.334f);
 
-		float3 initialVelocity = (vCenter.position - explosionOrigin) * initialVelocityMultipler;
+		float3 initialVelocity = (vCenter.positionWS - explosionOrigin) * initialVelocityMultipler;
 		float3 rotationAxis = normalize(cross(initialVelocity, float3(0.0f, 1.0f, 0.0f)));
 
-		float3 newCenterPosition = vCenter.position + initialVelocity * time + float3(0.0f, -gravityAcceleration, 0.0f) * time * time;
+		// calculate new center position applying velocity and gravity
+		float3 newCenterPositionWS = vCenter.positionWS + initialVelocity * time + float3(0.0f, -gravityAcceleration, 0.0f) * time * time;
 		float3x3 rotationMatrix = MatrixFromAxisAngle(rotationAxis, time * rotationSpeed);
 
 		// rotate points around vCenter by rotation matrix, then offset to new position
-		v0.position = rotationMatrix * (v0.position - vCenter.position) + newCenterPosition;
-		v0.normal = rotationMatrix * v0.normal;
-		v0.tangent = rotationMatrix * v0.tangent;
-		v0.bitangent = rotationMatrix * v0.bitangent;
+		v0.positionWS = rotationMatrix * (v0.positionWS - vCenter.positionWS) + newCenterPositionWS;
+		v0.normalWS = rotationMatrix * v0.normalWS;
+		v0.tangentWS = rotationMatrix * v0.tangentWS;
+		v0.bitangentWS = rotationMatrix * v0.bitangentWS;
 
-		v1.position = rotationMatrix * (v1.position - vCenter.position) + newCenterPosition;
-		v1.normal = rotationMatrix * v1.normal;
-		v1.tangent = rotationMatrix * v1.tangent;
-		v1.bitangent = rotationMatrix * v1.bitangent;
+		v1.positionWS = rotationMatrix * (v1.positionWS - vCenter.positionWS) + newCenterPositionWS;
+		v1.normalWS = rotationMatrix * v1.normalWS;
+		v1.tangentWS = rotationMatrix * v1.tangentWS;
+		v1.bitangentWS = rotationMatrix * v1.bitangentWS;
 
-		v2.position = rotationMatrix * (v2.position - vCenter.position) + newCenterPosition;
-		v2.normal = rotationMatrix * v2.normal;
-		v2.tangent = rotationMatrix * v2.tangent;
-		v2.bitangent = rotationMatrix * v2.bitangent;
+		v2.positionWS = rotationMatrix * (v2.positionWS - vCenter.positionWS) + newCenterPositionWS;
+		v2.normalWS = rotationMatrix * v2.normalWS;
+		v2.tangentWS = rotationMatrix * v2.tangentWS;
+		v2.bitangentWS = rotationMatrix * v2.bitangentWS;
 
 		Outputs outputs;
 		outputs.v[0] = v0;
@@ -233,8 +239,8 @@ Block UserBlock_PerVertex_OffsetPositionAlongNormal
 {
 	global partial struct GeomVert
 	{
-		inout float3 position;
-		in float3 normal;
+		inout float3 positionWS;
+		in float3 normalWS;
 	}
 
 	Inputs
@@ -255,7 +261,7 @@ Block UserBlock_PerVertex_OffsetPositionAlongNormal
 		Outputs outputs;
 		outputs.v = inputs.v;
 
-		outputs.v.position = inputs.v.position + inputs.v.normal * inputs.offsetAmount;
+		outputs.v.positionWS = inputs.v.positionWS + inputs.v.normalWS * inputs.offsetAmount;
 		return outputs;
 	}
 }

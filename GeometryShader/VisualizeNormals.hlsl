@@ -7,6 +7,7 @@ Block GeometryShader_ControlBlock_VisualizeNormals
 	{
 		in float3 normalWS;
 		inout float3 positionWS;
+		out float4 positionCS;
 	}
 
 	Inputs

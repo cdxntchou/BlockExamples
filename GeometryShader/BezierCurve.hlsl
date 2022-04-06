@@ -13,7 +13,7 @@ Block GeometryShader_ControlBlock_BezierCurveFromLine
 		// the inout flags indicate that this block is explicitly reading positionWS from the structure,
 		// and explicitly writing positionWS and positionCS.
 		inout float3 positionWS;
-		out float3 positionCS;
+		out float4 positionCS;
 	}
 
 	// inputs to the block
