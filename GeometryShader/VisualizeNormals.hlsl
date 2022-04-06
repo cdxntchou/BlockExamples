@@ -5,8 +5,8 @@ Block GeometryShader_ControlBlock_VisualizeNormals
 
 	global partial struct GeomVert
 	{
-		in float3 normal;
-		inout float3 position;
+		in float3 normalWS;
+		inout float3 positionWS;
 	}
 
 	Inputs
@@ -14,9 +14,9 @@ Block GeometryShader_ControlBlock_VisualizeNormals
 		// length of the normal
 		[default(1.0f)] float length;
 
-		// input and output streams
-		[LineAdjacency] InputStream<GeomVert> inStream;
-		[MaxVertexCount(200)] [Line] OutputStream<GeomVert> outStream;
+		// input triangle stream, output line stream
+		[Triangle] InputStream<GeomVert> inStream;
+		[MaxVertexCount(6)] [Line] OutputStream<GeomVert> outStream;
 	}
 
 	Outputs
@@ -26,11 +26,13 @@ Block GeometryShader_ControlBlock_VisualizeNormals
 	void DrawNormal(GeomVert v, float length, OutStream<GeomVert> outStream)
 	{
 		outStream.Write(v);
-		v.position += v.normal * length;
+		v.positionWS += v.normalWS * length;
+		v.positionCS = TransformPoint(v.positionWS);
 		outStream.Write(v);
 		outStream.RestartStrip();
 	}
 
+	// block entry point
 	Outputs Apply(Inputs inputs)
 	{
 		GeomVert v;
