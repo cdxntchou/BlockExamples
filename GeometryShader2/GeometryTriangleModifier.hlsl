@@ -8,15 +8,16 @@ CompositeBlock GeometryShader_ControlBlock_TriangleModifier
 	[Triangle]
 	out Stream outStream;
 
-	CustomizationPoint preTriangleVertexOperations;		// in Stream inStream v, out GeomVert orig);
-	CustomizationPoint triangleOperations;				// (inout GeomVert v[3], in GeomVert orig[3]);
-	CustomizationPoint postTriangleVertexOperations;	// (inout GeomVert v, in GeomVert orig);
+	CustomizationPoint preTriangleVertexOperations;		// inout StreamInstance v, in StreamInstance orig
+	CustomizationPoint triangleOperations;				// inout StreamInstance v[3], in StreamInstance orig[3]
+	CustomizationPoint postTriangleVertexOperations;	// inout StreamInstance v, in StreamInstance orig
 
 	BlockSequence
 	{
 		// StreamInstances can only be passed to blocks as in or inout parameters
 		// pure out is not allowed (as it breaks our ability to track the data flow)
 		// -- effectively we need to treat it as if we are passing them by reference...
+		// so we need a way to make by-value copies of the instances at the block sequence level
 		StreamInstance[3] v = inStream;
 
 		// apply per-vertex operations (before triangle operations)
@@ -32,7 +33,7 @@ CompositeBlock GeometryShader_ControlBlock_TriangleModifier
 		postTriangleVertexOperations(inout v[1], in inStream[1]);
 		postTriangleVertexOperations(inout v[2], in inStream[2]);
 
-		// write to output stream
+		// write to output stream (must be done in a block sequence)
 		outStream.Emit(v[0]);
 		outStream.Emit(v[1]);
 		outStream.Emit(v[2]);
