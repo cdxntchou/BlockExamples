@@ -3,11 +3,11 @@
 // making use of partial structs to represent stream instances
 
 
-[maxtessfactor(MAX_TESSELLATION_FACTORS)]			// this uses a #define in HDRP -- not sure if we can support that well?
-[domain("tri")]										// tri, quad or isoline
-[partitioning("fractional_odd")]					// integer, fractional_even, fractional_odd, or pow2
-[outputtopology("triangle_cw")]						// point, line, triangle_cw, or triangle_ccw
-[outputcontrolpoints(3)]							// number of output control points (GenerateControlPoint gets called once per point)
+[maxtessfactor(MAX_TESSELLATION_FACTORS)]	// this uses a #define in HDRP -- not sure if we can support that well?
+[domain("tri")]								// tri, quad or isoline
+[partitioning("fractional_odd")]			// integer, fractional_even, fractional_odd, or pow2
+[outputtopology("triangle_cw")]				// point, line, triangle_cw, or triangle_ccw
+[outputcontrolpoints(3)]					// number of output control points (GenerateControlPoint gets called once per point)
 HullStage TessellationHull
 {
 	// The hull stage has TWO independent entry points, so we need some way to specify both.
@@ -20,7 +20,7 @@ HullStage TessellationHull
 		// inPoints gets read from InputPatch<V2H,3> in the generated shader (linker generated code does conversion)
 		// it is a stream of vertex stage outputs
 		// since we are using a triangle domain, we get 3 input vertices on each invocation
-		in HullPoint[3] inPoints; // 1-32 points per patch depending on layout
+		in HullPoint[3] inPoints;
 		// in InputStream<HullPoint> inPoints;	// alternative representation with a wrapper that could read directly from InputPatch
 
 		[SV_PrimitiveID]
@@ -49,7 +49,7 @@ HullStage TessellationHull
 		};
 
 		// inPoints gets read from InputPatch<V2H,3> in the generated shader (linker generated code does conversion)
-		in HullPoint[3] inPoints; // 1-32 points per patch
+		in HullPoint[3] inPoints;
 
 		[SV_PrimitiveID]
 		in uint primitiveID;
@@ -57,12 +57,12 @@ HullStage TessellationHull
 		// any output of the GeneratePatchConstantData block are placed in "H2D_ConstantData" in the generated shader, and passed as input to domain shader
 		// any data flagged SV_TessFactor or SV_InsideTessFactor are additionally sent to the hardware tessellator to generate domain locations
 		[SV_TessFactor]
-		out float edgeTess[3];
+		out float edgeTess[3];	// [4] when using [domain("quad"]
 
 		[SV_InsideTessFactor]
-		out float insideTess;
+		out float insideTess;	// [2] when using [domain("quad"]
 
-		// here we don't have any additional data we want to pass to domain
+		// here we can specify have any additional outputs we want to pass to the domain shader.  None needed for HDRP implementation
 
 		void Apply()
 		{
@@ -119,9 +119,9 @@ DomainStage TessellationDomain
 
 	// input: tessellation factors
 	[SV_DomainLocation]
-	in float3 baryCoords;		// float3 barycentrics for a triangle domain, float2 UV for a quad domain
+	in float3 baryCoords; // float3 barycentrics for a triangle domain, float2 UV for a quad domain
 
-	[Keyword]	// keyword by default if unbound...
+	[Keyword]	// keyword by default if unbound... ?  controlled by an HDRP target setting at the moment...
 	in bool phongTessellationEnabled;
 
 	out DomainPoint result
