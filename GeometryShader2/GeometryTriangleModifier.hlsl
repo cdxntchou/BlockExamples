@@ -1,6 +1,8 @@
-// composite block is a block that is built from a block sequence (as opposed to an HLSL string apply function)
-CompositeBlock GeometryShader_ControlBlock_TriangleModifier
+
+GeometryStage GeometryShader_ControlBlock_TriangleModifier
 {
+	// the GeometryStage linker is looking for these input and output streams
+	// to define the I/O of the geometry shader
 	[Triangle]
 	in Stream inStream;
 
@@ -8,35 +10,52 @@ CompositeBlock GeometryShader_ControlBlock_TriangleModifier
 	[Triangle]
 	out Stream outStream;
 
-	CustomizationPoint preTriangleVertexOperations;		// inout StreamInstance v, in StreamInstance orig
-	CustomizationPoint triangleOperations;				// inout StreamInstance v[3], in StreamInstance orig[3]
-	CustomizationPoint postTriangleVertexOperations;	// inout StreamInstance v, in StreamInstance orig
+	// StreamInstances (name TBD) are a group of related values -- in this case, each StreamInstance
+	// contains all values pertaining to a vertex in the input or output stream.
 
-	BlockSequence
+	// StreamInstances allow blocks to add values to them; they are not a fixed struct,
+	// but rather a representation of the grouping of a set of values that can be passed around
+	// as a group.
+
+	CustomizationPoint preTriangleVertexOperations
 	{
-		// StreamInstances can only be passed to blocks as in or inout parameters
-		// pure out is not allowed (as it breaks our ability to track the data flow)
-		// -- effectively we need to treat it as if we are passing them by reference...
-		// so we need a way to make by-value copies of the instances at the block sequence level
-		StreamInstance[3] v = inStream;
+		inout StreamInstance v;
+	}
+	CustomizationPoint triangleOperations
+	{
+		inout StreamInstance v0;
+		inout StreamInstance v1;
+		inout StreamInstance v2;
+	}
+	CustomizationPoint postTriangleVertexOperations
+	{
+		inout StreamInstance v;
+	}
+
+	BlockGraph
+	{
+		// copy assignments
+		v0 = inStream[0];
+		v1 = inStream[1];
+		v2 = inStream[2];
 
 		// apply per-vertex operations (before triangle operations)
-		preTriangleVertexOperations(inout v[0], in inStream[0]);
-		preTriangleVertexOperations(inout v[1], in inStream[1]);
-		preTriangleVertexOperations(inout v[2], in inStream[2]);
+		preTriangleVertexOperations(v0);		// positional param matching syntax (would be nice)
+		preTriangleVertexOperations(v1);
+		preTriangleVertexOperations(v2);
 
 		// apply triangle operations
-		triangleOperations(inout v, in inStream);
+		triangleOperations;
 
 		// apply per-vertex operations (after triangle operations)
-		postTriangleVertexOperations(inout v[0], in inStream[0]);
-		postTriangleVertexOperations(inout v[1], in inStream[1]);
-		postTriangleVertexOperations(inout v[2], in inStream[2]);
+		postTriangleVertexOperations(v: v0);	// named parameter matching
+		postTriangleVertexOperations(v: v1);
+		postTriangleVertexOperations(v: v2);
 
 		// write to output stream (must be done in a block sequence)
-		outStream.Emit(v[0]);
-		outStream.Emit(v[1]);
-		outStream.Emit(v[2]);
+		outStream.Emit(v0);
+		outStream.Emit(v1);
+		outStream.Emit(v2);
 	}
 }
 
@@ -50,55 +69,57 @@ Block UserBlock_PerTriangle_SetNormalsToFlatShaded
 {
 	// override vertex normals to flat shade the triangle
 
-	inout StreamInstance[3] v
-	{
-		in float3 positionWS;
-		inout float3 normalWS;
-		// issue:  if we accidentally declare normalWS as "out" --
-		// we might have the situation where there is no error, but it doesn't work as intended...
-	}
+	// inside HLSL-backed blocks, StreamInstances are represented as a locally-defined struct type
+	// the struct will contain at minimum the declared members, which are mapped to StreamInstance data if possible.
 
-	[default(1.0f)]
-	in float flatShadeAmount;
+	// there may be additional members of the struct (for other members of the StreamInstance), but their names are obfuscated.
+	// they are only present to enable passthrough of instance related data and generic blending operations.
+	typedef StreamInstance LocalVertex	// StreamInstance declaration syntax TBD
+	{
+		// in and out declarations help us populate the StreamInstance when linking
+		in float3 positionWS;		// in makes a value live upstream (and issues an error if no value or default is provided)
+		out float3 normalWS;		// out adds the value, or marks it as dead upstream if it is already there
+	};
+
+	// use of a StreamInstance type means this block can not concretized until we resolve
+	// the active StreamInstance members, as the concrete local type must be generated to match them
+	inout LocalVertex v0, v1, v2;
 
 	void Apply()
 	{
-		float3 e0 = v[1].positionWS - v[0].positionWS;
-		float3 e1 = v[2].positionWS - v[0].positionWS;
+		float3 e0 = v1.positionWS - v0.positionWS;
+		float3 e1 = v2.positionWS - v0.positionWS;
 		float3 flatNormal = normalize(cross(e0, e1));  // might have this backwards.. depends on triangle cull winding
 
-		// annoying that we have to copy inputs to outputs manually here
-		// if we allowed combined input/output state we wouldn't have to...
-
-		// override normals
-		v[0].normalWS = lerp(v[0].normalWS, flatNormal, flatShadeAmount);
-		v[1].normalWS = lerp(v[1].normalWS, flatNormal, flatShadeAmount);
-		v[2].normalWS = lerp(v[2].normalWS, flatNormal, flatShadeAmount);
+		v0.normalWS = flatNormal;
+		v1.normalWS = flatNormal;
+		v2.normalWS = flatNormal;
 	}
 }
 
 
-CompositeBlock UserBlock_PerTriangle_ShrinkEraseTriangle
+Block UserBlock_PerTriangle_ShrinkEraseTriangle
 {
 	// shrink the rasterized area of each triangle,
 	// while keeping interior fragment results constant
 
-	// composite blocks don't need to declare what they read and write from the stream
-	// as we can derive that information directly from our parsing of the block sequence
-	// (and in this case, the answer is "everything that happens to be there".. i.e. treat it as a 100% passthrough)
-	inout StreamInstance v;
+	typedef StreamInstance LocalVertex
+	{
+		// in this case, this block doesn't actually need to know about ANY of the members of the type
+		// as we only use generic struct operations
+	};
+
+	inout LocalVertex v0, v1, v2;
 
 	[Property] [default(0.5f)]
 	in float shrinkAmount;
 
-	// this is near impossible to express
-	BlockSequence
+	void Apply()
 	{
-		Blend3<StreamInstance>(v[0], 0.333f, v[1], 0.333f, v[2], 0.334f, out vCenter);
-		Lerp<StreamInstance>(v[0], vCenter, shrinkAmount, out v[0]);
-		Lerp<StreamInstance>(v[1], vCenter, shrinkAmount, out v[1]);
-		Lerp<StreamInstance>(v[2], vCenter, shrinkAmount, out v[2]);
-		return outputs;
+		LocalVertex vCenter = Blend3<LocalVertex>(v0, 0.333f, v1, 0.333f, v2, 0.334f);
+		v0 = Lerp<LocalVertex>(v0, vCenter, shrinkAmount);
+		v1 = Lerp<LocalVertex>(v1, vCenter, shrinkAmount);
+		v2 = Lerp<LocalVertex>(v2, vCenter, shrinkAmount);
 	}
 }
 
@@ -108,13 +129,15 @@ Block UserBlock_PerTriangle_ExplodeMeshTriangles
 	// split the mesh into separate triangles and make them fly apart like in an explosion
 	// applying an initial velocity, gravity and a rotation to each triangle independently
 
-	inout StreamInstance[3] v
+	typedef StreamInstance LocalVertex
 	{
 		inout float3 positionWS;
 		inout float3 normalWS;
 		inout float3 tangentWS;
 		inout float3 bitangentWS;
-	}
+	};
+
+	inout LocalVertex v0, v1, v2;
 
 	[Property] [default(float3(0.0f,0.0f,0.0f))]
 	in float3 explosionOrigin;
@@ -129,7 +152,7 @@ Block UserBlock_PerTriangle_ExplodeMeshTriangles
 
 	void Apply()
 	{
-		float3 vCenterPosWS = v[0].positionWS * 0.333f + v[1].positionWS * 0.333f + v[2].positionWS * 0.334f;
+		float3 vCenterPosWS = v0.positionWS * 0.333f + v1.positionWS * 0.333f + v2.positionWS * 0.334f;
 		float3 initialVelocity = (vCenterPosWS - explosionOrigin) * initialVelocityMultipler;
 		float3 rotationAxis = normalize(cross(initialVelocity, float3(0.0f, 1.0f, 0.0f)));
 
@@ -138,33 +161,36 @@ Block UserBlock_PerTriangle_ExplodeMeshTriangles
 		float3x3 rotationMatrix = MatrixFromAxisAngle(rotationAxis, time * rotationSpeed);
 
 		// rotate points around vCenter by rotation matrix, then offset to new position
-		v[0].positionWS = rotationMatrix * (v[0].positionWS - vCenter.positionWS) + newCenterPositionWS;
-		v[0].normalWS = rotationMatrix * v[0].normalWS;
-		v[0].tangentWS = rotationMatrix * v[0].tangentWS;
-		v[0].bitangentWS = rotationMatrix * v[0].bitangentWS;
+		v0.positionWS = rotationMatrix * (v0.positionWS - vCenter.positionWS) + newCenterPositionWS;
+		v0.normalWS = rotationMatrix * v0.normalWS;
+		v0.tangentWS = rotationMatrix * v0.tangentWS;
+		v0.bitangentWS = rotationMatrix * v0.bitangentWS;
 
-		v[1].positionWS = rotationMatrix * (v[1].positionWS - vCenter.positionWS) + newCenterPositionWS;
-		v[1].normalWS = rotationMatrix * v[1].normalWS;
-		v[1].tangentWS = rotationMatrix * v[1].tangentWS;
-		v[1].bitangentWS = rotationMatrix * v[1].bitangentWS;
+		v1.positionWS = rotationMatrix * (v1.positionWS - vCenter.positionWS) + newCenterPositionWS;
+		v1.normalWS = rotationMatrix * v1.normalWS;
+		v1.tangentWS = rotationMatrix * v1.tangentWS;
+		v1.bitangentWS = rotationMatrix * v1.bitangentWS;
 
-		v[2].positionWS = rotationMatrix * (v[2].positionWS - vCenter.positionWS) + newCenterPositionWS;
-		v[2].normalWS = rotationMatrix * v[2].normalWS;
-		v[2].tangentWS = rotationMatrix * v[2].tangentWS;
-		v[2].bitangentWS = rotationMatrix * v[2].bitangentWS;
+		v2.positionWS = rotationMatrix * (v2.positionWS - vCenter.positionWS) + newCenterPositionWS;
+		v2.normalWS = rotationMatrix * v2.normalWS;
+		v2.tangentWS = rotationMatrix * v2.tangentWS;
+		v2.bitangentWS = rotationMatrix * v2.bitangentWS;
 	}
 }
 
 
 Block UserBlock_PerVertex_OffsetPositionAlongNormal
 {
-	in StreamInstance v
+	typedef StreamInstance LocalVertex
 	{
 		inout float3 positionWS;
 		in float3 normalWS;
-	}
+	};
+
+	inout LocalVertex v;
 
 	[Property]
+	[default(1.0f)]
 	in float offsetAmount;
 
 	Outputs Apply(Inputs inputs)
